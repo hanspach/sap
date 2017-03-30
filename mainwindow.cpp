@@ -20,7 +20,6 @@ MainWindow::MainWindow(QWidget *parent) :
     ui->progressBar->setValue(0);
     player = new BassWrapper(this);
     model =  new TreeModel(this);
- //   timer =  new QTimer(this);
     ui->treeView->setModel(model);
     ui->treeView->setMouseTracking(true);   // needed for entered signal
 
@@ -39,9 +38,12 @@ MainWindow::MainWindow(QWidget *parent) :
     connect(player, SIGNAL(mediaLen(QString)),this,SLOT(updateMediaLen(QString)));
     connect(player, SIGNAL(mediaPos(QString,int)),this,SLOT(updateMediaPos(QString,int)));
     connect(ui->volumeSlider, SIGNAL(valueChanged(int)), this, SLOT(volumeChanged(int)));
-//    connect(timer, SIGNAL(timeout()),this,SLOT(elapsedTime()));
 
+    process   = new QProcess(this);
+    connect(process, SIGNAL(finished(int,QProcess::ExitStatus)),this,SLOT(processFinished(int,QProcess::ExitStatus)));
     audioPath = QString();
+    processName = "check";
+    checkPulseAudio();
     QStringList pathes = QStandardPaths::standardLocations(QStandardPaths::MusicLocation);
     if(!pathes.isEmpty())
         audioPath = pathes.at(0);
@@ -75,14 +77,14 @@ void MainWindow::openFile()
         model->clear();
         audioPath = infolist.value(0).absolutePath();
         model->setupModelData(QFileInfoList() << audioPath);
-        QTimer::singleShot(10000,this,SLOT(elapsedTime()));
+        QTimer::singleShot(15000,this,SLOT(elapsedTime()));
 
 
     } else {
         statusBar()->showMessage(tr("File-open-dialog canceled."),DELAY);
-    }
-    if(stopped) {
-        player->play();
+        if(stopped) {
+            player->play();
+        }
     }
 }
 
@@ -105,11 +107,12 @@ void MainWindow::openFolder()
         model->clear();
         audioPath = folder;
         model->setupModelData(QFileInfoList() << audioPath);
+        QTimer::singleShot(15000,this,SLOT(elapsedTime()));
     } else {
         statusBar()->showMessage(tr("Folder-open-dialog canceled."),DELAY);
-    }
-    if(stopped) {
-        player->play();
+        if(stopped) {
+            player->play();
+        }
     }
 }
 
@@ -128,23 +131,28 @@ void MainWindow::inetRadio()
     } else {
         updateStatus(BassWrapper::ErrorState, tr("Could not open..."));
     }
-    if(player->state() == BassWrapper::PausedState) {
-        player->play();
-    }
 }
 
 void MainWindow::chooseDevice()
 {
     DeviceSelectionDialog dlg(player, this);
+    if(player->state() == BassWrapper::PlayingState) {
+        player->pause();
+    }
     if(dlg.exec()) {
         QFile file("/usr/bin/pacmd");
         if(file.exists()) {
-            QProcess::startDetached(file.fileName(), QStringList() << "set-default-sink" << dlg.deviceName());
+            process->start(file.fileName(),
+                QStringList() << "set-default-sink" << dlg.deviceName());
         } else {
-            if(dlg.activeDeviceNumber() != player->device()) {
-                player->setDevice(dlg.activeDeviceNumber());
+            if(dlg.activeDeviceNumber() != player->activeDevice()) {
+                player->setActiveDevice(dlg.activeDeviceNumber());
             }
         }
+    }
+    else {
+        if(player->state() == BassWrapper::PausedState)
+            player->play();
     }
 }
 
@@ -167,7 +175,6 @@ void MainWindow::nodeExpanded(const QModelIndex &node)
             player->pause();
         TreeModel* tnm = (TreeModel*)node.model();
         TreeItem*  tni = tnm->getItem(node);
-    //      currentIndex = node;
         QModelIndex idx = node.child(0,0);
         if(idx.isValid()) {
             TreeModel* tim = (TreeModel*)idx.model();
@@ -188,15 +195,6 @@ void MainWindow::nodeExpanded(const QModelIndex &node)
                     QFileInfoList list;
                     QDir dir(tni->url());
                     dir.setFilter(QDir::Dirs|QDir::Files|QDir::NoDotAndDotDot|QDir::NoSymLinks);
-                    /*
-                    foreach(QFileInfo info, dir.entryInfoList()) {
-                        foreach(QFileInfo i, infolist) {
-                            if(info.absoluteFilePath() == i.absoluteFilePath()) {
-                                list << i;
-                                break;
-                            }
-                        }
-                    } */
                     if(infolist.isEmpty()) {
                          foreach(QFileInfo info, dir.entryInfoList())
                              list << info;
@@ -209,12 +207,6 @@ void MainWindow::nodeExpanded(const QModelIndex &node)
                 }
             }
         }
-        if(player->state() == BassWrapper::PausedState)
-           player->play();
-        // hier weiter!!!
-        //view->selectionModel()->clear();
-        //QItemSelection selection(view->model()->index(0,0),view->model()->index(0,0));
-        //view->selectionModel()->select(selection, QItemSelectionModel::Select);
     }
 }
 
@@ -282,10 +274,16 @@ void MainWindow::updateMediaEnd()
 void MainWindow::elapsedTime()
 {
     if(!ui->treeView->selectionModel()->hasSelection()) {
-      //  ui->treeView->expand(QModelIndex());
-        qDebug() << "Try to expand the tree";
-    }
+        TreeModel* tm = (TreeModel*)ui->treeView->model();
+        QModelIndex idx = tm->index(0,0);
+        if(idx.isValid()) {
+            ui->treeView->expand(idx);
+            idx = tm->index(0,0,idx);
+            if(idx.isValid())
+                ui->treeView->selectionModel()->select(idx,QItemSelectionModel::Select);
+        }
 
+    }
 }
 
 void MainWindow::updateMediaLen(const QString& len)
@@ -325,3 +323,34 @@ void MainWindow::updateStatus(const int& status, const QString& reason)
     statusLabel->setPalette(pal);
 }
 
+void MainWindow::checkPulseAudio()
+{
+    QFile file("/usr/bin/pulseaudio");
+    if(file.exists()) {
+        processName = "check";
+        process->start(file.fileName(),QStringList() << "--check");
+    }
+}
+
+void MainWindow::processFinished(int exitCode,QProcess::ExitStatus exitState)
+{
+    if(processName == "check") {
+        if(exitState == QProcess::NormalExit && exitCode !=0) {
+            processName = "start";
+            process->start("/usr/bin/pulseaudio", QStringList() << "--start");
+        }
+    }
+    else if(processName == "start") {
+        if(exitState == QProcess::NormalExit && exitCode == 0)
+            statusBar()->showMessage(tr("Launched pulseaudio."),DELAY);
+        else
+            updateStatus(BassWrapper::ErrorState, tr("Failed to launch pulseaudio."));
+    }
+    else {
+        if(exitState == QProcess::NormalExit && exitCode == 0) {
+            statusBar()->showMessage(tr("Changed to ") + player->activeDevice(QFile()),DELAY);
+        } else {
+            updateStatus(BassWrapper::ErrorState, tr("Couldn't change the output-device"));
+        }
+   }
+}

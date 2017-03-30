@@ -3,6 +3,7 @@
 
 #include "bass.h"
 #include <QtWidgets>
+#include <QProcess>
 
 class BassErrorMessages
 {
@@ -34,7 +35,7 @@ public:
     static const int PlayingState;
     static const int StoppedState;
     bool isNetMedia;
-    unsigned int request;
+    uint request;
 
     explicit BassWrapper(QWidget* parent);
     virtual ~BassWrapper();
@@ -48,10 +49,11 @@ public:
     bool stop();
     int state() const;
     int volume();
-    int device() const;
-    bool setDevice(int device);
+    int activeDevice() const;
+    QString activeDevice(const QFile& /*file*/) const;
+    bool setActiveDevice(int device);
     QList<DeviceInfo> devices();
-    QList<DeviceInfo> devices(const QFile &file);
+    QList<DeviceInfo> devices(const QString &cmd);
     bool setVolume(const unsigned int& vol);
     QString deviceFlagsToString(uint flags) const;
     QList<DeviceInfo> getDevicesInfo() const;
@@ -73,8 +75,10 @@ private:
     QList<DeviceInfo> devicesInfo;
 
     void doStatus(const int& status, const QString& reason=QString());
+    QList<QByteArray> doCommand(const QString& cmd,
+        const QStringList& params, QList<QByteArray>& rows);
     QString formatNumber(quint64 number);
-    void checkPulseAudio();
+
 };
 
 #endif // BASSWRAPPER_H

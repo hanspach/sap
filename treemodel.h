@@ -50,9 +50,10 @@ public:
 
     void clear();
 protected:
+    TreeItem *rootItem;
+
     QString readAttribute(const QXmlStreamReader& reader, const QString& attrName);
     void clear(QModelIndex idx);
-    TreeItem *rootItem;
 };
 
 #endif // TREEMODEL_H

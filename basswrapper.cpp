@@ -83,7 +83,7 @@ BassWrapper* obj = NULL; //wird nur hier gebraucht!!!!
 void CALLBACK StatusProc(const void *buffer, DWORD length, void *user)
 {
    if (buffer && !length && (DWORD)user == obj->request){ // got HTTP/ICY tags, and this is still the current request
-      qDebug() << buffer << ":" << length; // display status
+    //  qDebug() << buffer << ":" << length; // display status
     }
 }
 
@@ -107,7 +107,6 @@ const int BassWrapper::StoppedState=BASS_ACTIVE_STOPPED;
 BassWrapper::BassWrapper(QWidget* parent)
 {
     parentWindow = parent;
-    checkPulseAudio();
     init();
     connect(&timer, &QTimer::timeout,this,&BassWrapper::elapsedTime);
     obj = this;
@@ -138,10 +137,11 @@ bool BassWrapper::init(int device)
     BASS_SetConfig(BASS_CONFIG_GVOL_STREAM,3000);   // max volume / 3
     BASS_SetConfig(BASS_CONFIG_UNICODE,TRUE);
     if(!BASS_SetConfig(BASS_CONFIG_NET_PLAYLIST,1)) // enable playlist processing
-        qDebug() << "Init:BASS_CONFIG_NET_PLAYLIST " << BassErrorMessages::string(BASS_ErrorGetCode());
+        doStatus(ErrorState, "Init:BASS_CONFIG_NET_PLAYLIST " +
+            BassErrorMessages::string(BASS_ErrorGetCode()));
     if(!BASS_SetConfig(BASS_CONFIG_NET_PREBUF,0)) // minimize automatic pre-buffering,
-       qDebug() << "Init:BASS_CONFIG_NET_PREBUF " << BassErrorMessages::string(BASS_ErrorGetCode());
-                                           // so we can do it(and display it)instead
+       doStatus(ErrorState, "Init:BASS_CONFIG_NET_PREBUF " +
+            BassErrorMessages::string(BASS_ErrorGetCode()));
     BASS_ChannelSetSync(currentStream,BASS_SYNC_META,0,&MetaSync,0); // Shoutcast
     BASS_ChannelSetSync(currentStream,BASS_SYNC_OGG_CHANGE,0,&MetaSync,0); // Icecast/OGG
     BASS_ChannelSetSync(currentStream,BASS_SYNC_END,0,&EndSync,0); // set syn
@@ -170,8 +170,31 @@ bool BassWrapper::prepareFileStream(const QString& path) {
             QString lenStr = formatNumber(mediaLength);
             emit mediaLen(lenStr);
         }
-        emit metaData(path);
-        play();
+        if(play()) {
+            QString msg = QString();
+            TAG_ID3* id3 = (TAG_ID3*)BASS_ChannelGetTags(currentStream,BASS_TAG_ID3);
+            if(id3) {
+                if(id3->title) {
+                    msg = QLatin1String(id3->title);
+                    QStringList list = msg.split("  ");
+                    msg.clear();
+                    foreach(QString s, list) {
+                        if(!s.isEmpty()) {
+                            msg += s;
+                            msg += "  ";
+                        }
+                    }
+                }
+            }
+            if(msg.isEmpty()) {
+                int first = path.lastIndexOf('/');
+                int last  = path.lastIndexOf('.');
+                if(first != -1 && last > first)
+                    msg = (path.mid(first+1,last-first-1)).toLatin1();
+             }
+            emit metaData(msg);
+        }
+
     }
     else {
         doStatus(ErrorState,"BASS_StreamCreateFile(): file:"
@@ -184,11 +207,11 @@ bool BassWrapper::prepareFileStream(const QString& path) {
 bool BassWrapper::prepareMedia(const QString& url) {
     mediaLength = -1;
     request = 0;
-    unsigned int r = ++request;
+    uint r = ++request;
     if(timer.isActive())
         timer.stop();       // stop prebuffer monitoring
     stop();
-    unsigned int c = BASS_StreamCreateURL(url.toStdString().c_str(),0,BASS_STREAM_BLOCK|
+    uint c = BASS_StreamCreateURL(url.toStdString().c_str(),0,BASS_STREAM_BLOCK|
         BASS_STREAM_STATUS|BASS_STREAM_AUTOFREE,StatusProc,(void*)r); // open URL
     if (r != request) { // there is a newer request, discard this stream
         if (c)
@@ -197,8 +220,8 @@ bool BassWrapper::prepareMedia(const QString& url) {
         return false;
     }
     currentStream = c;
-    if (!currentStream) { // failed to open
-        doStatus(ErrorState, "not playing");
+    if (!currentStream) {
+        doStatus(ErrorState, tr("Failed to open the stream."));
 
      } else {
         filePositionOk = false;
@@ -211,30 +234,25 @@ void BassWrapper::elapsedTime() {
     static int count = 0;
 
     if(isNetMedia && !filePositionOk) {
-        unsigned int progress = BASS_StreamGetFilePosition(currentStream, BASS_FILEPOS_BUFFER)
+        uint progress = BASS_StreamGetFilePosition(currentStream, BASS_FILEPOS_BUFFER)
             *100/BASS_StreamGetFilePosition(currentStream,BASS_FILEPOS_END); // percentage of buffer filled
 
         if (progress > 75 || !BASS_StreamGetFilePosition(currentStream,BASS_FILEPOS_CONNECTED)) { // over 75% full (or end of download)
             filePositionOk = true;
             doMeta();
-            /*
-            BASS_ChannelSetSync(currentStream,BASS_SYNC_META,0,&MetaSync,0); // Shoutcast
-            BASS_ChannelSetSync(currentStream,BASS_SYNC_OGG_CHANGE,0,&MetaSync,0); // Icecast/OGG
-            BASS_ChannelSetSync(currentStream,BASS_SYNC_END,0,&EndSync,0); // set sync for end of stream
-            */
             play();
         }
         else {
-            doStatus(InitState, "In progress...");
+            doStatus(InitState, tr("In progress..."));
         }
     }
     if(++count == 20) { // per second
         count = 0;
-        unsigned long long pos = BASS_ChannelGetPosition(currentStream,BASS_POS_BYTE);
-        if(currentState == PlayingState && pos != (unsigned long long)-1) {
+        quint64 pos = BASS_ChannelGetPosition(currentStream,BASS_POS_BYTE);
+        if(currentState == PlayingState && pos != (quint64)-1) {
            QString posStr = formatNumber(pos);
            int percent = 0;
-           if(mediaLength != (unsigned long long)-1) {
+           if(mediaLength != (quint64)-1) {
                double quot = ((double)pos / mediaLength) * 100;
                percent = (int)quot;
                if(mediaLength - pos < 1000) {
@@ -258,7 +276,7 @@ bool BassWrapper::play()
             doStatus(currentState=PlayingState);
         }
     }
-    return false;
+    return true;
 }
 
 bool BassWrapper::pause()
@@ -306,7 +324,7 @@ void BassWrapper::doMeta()
     }  else {
         meta = BASS_ChannelGetTags(currentStream,BASS_TAG_OGG);
         if (meta) {
-           s = QString::fromLatin1(meta);    //fromUtf8(meta);
+           s = QString::fromLatin1(meta);
            QStringList tokens = s.split("=");
            for(int i=1; i < tokens.length(); i +=2) {
                res += tokens[i];
@@ -334,24 +352,16 @@ QList<DeviceInfo> BassWrapper::devices()
     return devicesInfo;
 }
 
-QList<DeviceInfo> BassWrapper::devices(const QFile &file)
+QList<DeviceInfo> BassWrapper::devices(const QString& cmd)
 {
+    QString name = QString();
+    QString description = QString();
+    int first, last;
+    bool active = false;
+    QList<QByteArray> rows;
     devicesInfo.clear();
-    QByteArray data = QByteArray();
-    QProcess process;
-    process.setProcessChannelMode(QProcess::MergedChannels);
-    process.start(file.fileName(),QStringList() << "list-sinks");
-    if(process.waitForStarted()) {
-        while(process.waitForReadyRead())
-            data.append(process.readAll());
-    }
-    if(!data.isEmpty()) {
-        QList<QByteArray> rows = data.split('\n');
-        QString name = QString();
-        QString description = QString();
-        int first, last;
-        bool active = false;
-
+    doCommand(cmd, QStringList() << "list-sinks",rows);
+    if(!rows.isEmpty()) {
         foreach(QByteArray row, rows) {
             QString line(row);
             if(line.contains("name:")) {
@@ -361,11 +371,8 @@ QList<DeviceInfo> BassWrapper::devices(const QFile &file)
                     name = line.mid(first+1,last-first-1);
                 }
             }
-            if(line.contains("state:")) {
-                if(line.contains("RUNNING"))
-                    active = true;
-                else
-                    active = false;
+            if(line.contains("state: RUNNING")) {
+                active = true;
             }
             if(line.contains("device.description")) {
                 first = line.indexOf('"');
@@ -382,23 +389,62 @@ QList<DeviceInfo> BassWrapper::devices(const QFile &file)
                 active = false;
             }
         }
+        active = false;
+        foreach(DeviceInfo info, devicesInfo) {
+            if(info.active) {
+                active = info.active;
+                break;
+            }
+        }
+        if(!active) {
+            rows.clear();
+            rows = doCommand(cmd,QStringList() << "stat", rows);
+            foreach(QByteArray row, rows) {
+                if(row.contains("Default sink name:")) {
+                    first = row.indexOf(':');
+                    QString sinkName = row.right(row.length()-first-2);
+                    foreach(DeviceInfo info, devicesInfo) {
+                        if(info.device == sinkName) {
+                            info.active = true;
+                            break;
+                        }
+                    }
+                    break;
+                }
+            }
+        }
     }
     return devicesInfo;
 }
 
-int BassWrapper::device() const
+QString BassWrapper::activeDevice(const QFile& /*file*/) const
+{
+    QString res = QString();
+    foreach(DeviceInfo info, devicesInfo) {
+        if(info.active) {
+            res = info.name;
+            break;
+        }
+    }
+    return res;
+}
+
+int BassWrapper::activeDevice() const
 {
     return BASS_GetDevice();
 }
 
-bool BassWrapper::setDevice(int device)
+bool BassWrapper::setActiveDevice(int device)
 {
+    stop();
     BASS_Free();
     init(device);
     if(BASS_SetDevice(device) == FALSE) {
-         qDebug() << "BASS_SetDevice(): " << BassErrorMessages::string(BASS_ErrorGetCode());
+         doStatus(ErrorState, "BASS_SetDevice(): " +
+            BassErrorMessages::string(BASS_ErrorGetCode()));
+         return false;
     }
-    return false;
+    return true;
 }
 
 int BassWrapper::volume()
@@ -408,7 +454,8 @@ int BassWrapper::volume()
     if(vol != -1)
         res = vol * 100;
     else
-        qDebug() << "BASS_GetVolume(): " << BassErrorMessages::string(BASS_ErrorGetCode());
+        doStatus(ErrorState, "BASS_GetVolume(): " +
+            BassErrorMessages::string(BASS_ErrorGetCode()));
     return res;
 }
 
@@ -416,7 +463,8 @@ bool BassWrapper::setVolume(const unsigned int& vol)
 {
     float value = vol / 100.0f;
     if(BASS_SetVolume(value) == 0) {
-        qDebug() << "BASS_SetVolume(): " << BassErrorMessages::string(BASS_ErrorGetCode());
+        doStatus(ErrorState, "BASS_SetVolume(): " +
+            BassErrorMessages::string(BASS_ErrorGetCode()));
         return false;
     }
     return true;
@@ -427,25 +475,25 @@ int BassWrapper::state() const
     return currentState;
 }
 
-void BassWrapper::checkPulseAudio()
+QList<QByteArray> BassWrapper::doCommand(const QString& cmd,
+    const QStringList& params, QList<QByteArray>& rows)
 {
-    QFile file("/usr/bin/pulseaudio");
-    if(file.exists()) {
-        QStringList list;
-        list << "--check";
-        QProcess process;
-        process.start(file.fileName(),list);
-        process.waitForFinished(100);
-        if(process.exitStatus()==0 && process.exitCode()!=0) {
-            list.replace(0, "--start");
-            QProcess::startDetached(file.fileName(), list);
-        }
+    QProcess process;
+    QByteArray data = QByteArray();
+    process.setProcessChannelMode(QProcess::MergedChannels);
+    process.start(cmd, params);
+    if(process.waitForStarted()) {
+        while(process.waitForReadyRead())
+            data.append(process.readAll());
     }
+    if(!data.isEmpty())
+        rows = data.split('\n');
+    return rows;
 }
 
 QString BassWrapper::formatNumber(quint64 number)
 {
-    unsigned int second = number / 176557; //maybe wrong?
+    unsigned int second = number / 176557; //maybe not exact?
     unsigned int min = second / 60;
     unsigned int sec = second % 60;
     QString strm = QString("%1").arg(min,2,10,QLatin1Char('0'));

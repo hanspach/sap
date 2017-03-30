@@ -16,7 +16,7 @@ DeviceSelectionDialog::DeviceSelectionDialog(BassWrapper *ctrl, QWidget *parent)
     QList<DeviceInfo> infos;
     QFile file("/usr/bin/pacmd");
     if(file.exists()) {
-        infos = player->devices(file);
+        infos = player->devices(file.fileName());
         for(int i=0; i < infos.length(); ++i) {
             qDebug() << "Bez:" << infos.at(i).name << " Sink:" << infos.at(i).device << " isActive:" << QString::number(infos.at(i).active);
             if(infos.at(i).active) {
@@ -25,7 +25,7 @@ DeviceSelectionDialog::DeviceSelectionDialog(BassWrapper *ctrl, QWidget *parent)
             }
         }
     } else {
-        activeDevice = player->device();
+        activeDevice = player->activeDevice();
         infos = player->devices();
     }
     for(int i=0; i < infos.length(); ++i) {

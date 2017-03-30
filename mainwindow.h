@@ -1,9 +1,9 @@
 #ifndef MAINWINDOW_H
 #define MAINWINDOW_H
 
-#include <QMainWindow>
 #include <QtWidgets>
 #include <QFileInfo>
+#include <QProcess>
 #include "treemodel.h"
 #include "basswrapper.h"
 
@@ -35,6 +35,7 @@ private slots:
     void updateMediaPos(const QString& pos, const int& percent);
     void updateMediaLen(const QString& len);
     void updateMediaEnd();
+    void processFinished(int exitCode,QProcess::ExitStatus exitState);
 private:
     Ui::MainWindow *ui;
     static int DELAY;
@@ -44,8 +45,11 @@ private:
     BassWrapper* player;
     QString audioPath;
     QModelIndex currentIndex;
+    QProcess* process;
+    QString processName;
 
     bool chooseTreeItem();
+    void checkPulseAudio();
 };
 
 #endif // MAINWINDOW_H
