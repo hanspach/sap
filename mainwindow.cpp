@@ -1,8 +1,9 @@
 #include "deviceselectiondialog.h"
 #include "mainwindow.h"
 #include "ui_mainwindow.h"
+#include <QtNetwork>
 
-int MainWindow::DELAY = 2000;
+int MainWindow::DELAY = 4000;
 
 MainWindow::MainWindow(QWidget *parent) :
     QMainWindow(parent), ui(new Ui::MainWindow)
@@ -22,6 +23,7 @@ MainWindow::MainWindow(QWidget *parent) :
     model =  new TreeModel(this);
     ui->treeView->setModel(model);
     ui->treeView->setMouseTracking(true);   // needed for entered signal
+    setAttribute(Qt::WA_AcceptTouchEvents, true);
 
     connect(ui->fileButton, SIGNAL(clicked()),this,SLOT(openFile()));
     connect(ui->folderButton, SIGNAL(clicked()),this,SLOT(openFolder()));
@@ -47,11 +49,25 @@ MainWindow::MainWindow(QWidget *parent) :
     QStringList pathes = QStandardPaths::standardLocations(QStandardPaths::MusicLocation);
     if(!pathes.isEmpty())
         audioPath = pathes.at(0);
+    if(!testConnection()) {
+        ui->radioButton->setEnabled(false);
+        statusBar()->showMessage(tr("No internet access."),DELAY);
+    }
+
 }
 
 MainWindow::~MainWindow()
 {
     delete ui;
+}
+
+bool MainWindow::event(QEvent *ev) {
+    if(ev->type() == QEvent::TouchBegin) {
+        ev->accept();
+        statusBar()->showMessage(tr("Touch event."),DELAY);
+        return true;
+    }
+    else return QWidget::event(ev);
 }
 
 void MainWindow::openFile()
@@ -330,6 +346,17 @@ void MainWindow::checkPulseAudio()
         processName = "check";
         process->start(file.fileName(),QStringList() << "--check");
     }
+}
+
+bool MainWindow::testConnection()
+{
+    foreach(QNetworkInterface iface, QNetworkInterface::allInterfaces()) {
+        if(iface.flags().testFlag(QNetworkInterface::IsUp)
+            && !iface.flags().testFlag(QNetworkInterface::IsLoopBack)) {
+            return true;
+        }
+    }
+    return false;
 }
 
 void MainWindow::processFinished(int exitCode,QProcess::ExitStatus exitState)

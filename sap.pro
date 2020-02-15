@@ -1,4 +1,4 @@
-QT      += core gui widgets webkitwidgets
+QT      += core gui widgets network webkit webkitwidgets
 TARGET = sap
 TEMPLATE = app
 SOURCES += main.cpp\

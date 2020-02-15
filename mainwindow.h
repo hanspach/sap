@@ -18,7 +18,8 @@ class MainWindow : public QMainWindow
 public:
     explicit MainWindow(QWidget *parent = 0);
     ~MainWindow();
-
+protected:
+    bool event(QEvent *ev);
 private slots:
     void openFile();
     void openFolder();
@@ -30,6 +31,7 @@ private slots:
     void volumeChanged(const int& volume);
     void playOrPause();
     void elapsedTime();
+
     void updateStatus(const int& status, const QString& reason);
     void updateTitle(const QString& title);
     void updateMediaPos(const QString& pos, const int& percent);
@@ -50,6 +52,7 @@ private:
 
     bool chooseTreeItem();
     void checkPulseAudio();
+    bool testConnection();
 };
 
 #endif // MAINWINDOW_H
