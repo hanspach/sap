@@ -18,8 +18,7 @@ class MainWindow : public QMainWindow
 public:
     explicit MainWindow(QWidget *parent = 0);
     ~MainWindow();
-protected:
-    bool event(QEvent *ev);
+
 private slots:
     void openFile();
     void openFolder();

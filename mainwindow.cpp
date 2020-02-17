@@ -61,15 +61,6 @@ MainWindow::~MainWindow()
     delete ui;
 }
 
-bool MainWindow::event(QEvent *ev) {
-    if(ev->type() == QEvent::TouchBegin) {
-        ev->accept();
-        statusBar()->showMessage(tr("Touch event."),DELAY);
-        return true;
-    }
-    else return QWidget::event(ev);
-}
-
 void MainWindow::openFile()
 {
     bool stopped = false;
